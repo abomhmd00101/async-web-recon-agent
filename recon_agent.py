@@ -1,364 +1,463 @@
-"""Modular asynchronous web reconnaissance for authorized targets."""
-
-from __future__ import annotations
-
-import argparse
 import asyncio
-import json
-import time
-from typing import Any
-from urllib.parse import urlparse
-
 import httpx
+import time
 from bs4 import BeautifulSoup
 
+start_time = time.time()
+
+targets = [
+    "https://example.com",
+    "https://example.com"
+]
+
+
+# =========================
+# Base Tool
+# =========================
 
 class BaseScanner:
-    """Base class that automatically registers scanner plugins."""
 
-    plugins: list[type["BaseScanner"]] = []
-    needs_base_response = False
+    plugins = []
 
-    def __init_subclass__(cls, **kwargs: Any) -> None:
+    def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
+        if not hasattr(cls, 'needs_base_response'):
+            cls.needs_base_response = False
+
         BaseScanner.plugins.append(cls)
 
-    async def scan(
-        self,
-        target: str,
-        client: httpx.AsyncClient,
-        response: httpx.Response | None,
-        response_time: float | None,
-    ) -> dict[str, Any]:
+    async def scan(self, target, client, response, final_time):
         raise NotImplementedError
 
+
+# =========================
+# Tools
+# =========================
 
 class SecurityHeadersScanner(BaseScanner):
     needs_base_response = True
 
-    async def scan(self, target, client, response, response_time):
-        headers_to_check = [
-            "Content-Security-Policy",
-            "Strict-Transport-Security",
-            "X-Frame-Options",
-            "X-Content-Type-Options",
-            "Referrer-Policy",
-            "Permissions-Policy",
-        ]
-        present = [header for header in headers_to_check if header in response.headers]
-        missing = [header for header in headers_to_check if header not in response.headers]
+    async def scan(self, target, client, response, final_time):
+        missing = []
+        present = []
+
+        headers_to_check = ["Content-Security-Policy",
+        "Strict-Transport-Security",
+        "X-Frame-Options",
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+        "Permissions-Policy"]
+
+        for header in headers_to_check:
+            if header in response.headers:
+                present.append(header)
+            else:
+                missing.append(header)
+
+
+
+        score = f"{len(present)} / {len(headers_to_check)}"
+
         return {
             "tool": "SecurityHeadersScanner",
             "target": target,
             "present": present,
             "missing": missing,
-            "score": f"{len(present)} / {len(headers_to_check)}",
-            "time": response_time,
+            "score": score,
+            "final_time": final_time
         }
+
 
 
 class SitemapScanner(BaseScanner):
-    async def scan(self, target, client, response, response_time):
-        url = target.rstrip("/") + "/sitemap.xml"
-        started = time.perf_counter()
-        try:
-            result = await client.get(url)
+
+    async def scan(self, target, client, response, final_time):
+        start_time = time.time()
+        try :
+            sitemap_url = target.rstrip("/") + "/sitemap.xml"
+            response = await client.get(sitemap_url)
+            final_time = time.time() - start_time
+
             return {
                 "tool": "SitemapScanner",
                 "target": target,
-                "url": url,
-                "status": result.status_code,
-                "response_preview": result.text[:300],
-                "time": time.perf_counter() - started,
+                "url": sitemap_url,
+                "status": response.status_code,
+                "response_text": response.text[:300],
+                "time": final_time
             }
-        except httpx.RequestError as error:
+        except httpx.RequestError:
             return {
-                "tool": "SitemapScanner",
-                "target": target,
-                "status": "failed",
-                "error": type(error).__name__,
-            }
-
-
-class RobotsScanner(BaseScanner):
-    async def scan(self, target, client, response, response_time):
-        url = target.rstrip("/") + "/robots.txt"
-        started = time.perf_counter()
-        try:
-            result = await client.get(url)
-            return {
-                "tool": "RobotsScanner",
-                "target": target,
-                "url": url,
-                "status": result.status_code,
-                "server": result.headers.get("server"),
-                "response_preview": result.text[:300],
-                "time": time.perf_counter() - started,
-            }
-        except httpx.RequestError as error:
-            return {
-                "tool": "RobotsScanner",
-                "target": target,
-                "status": "failed",
-                "error": type(error).__name__,
-            }
-
-
-class HTTPScanner(BaseScanner):
-    needs_base_response = True
-
-    async def scan(self, target, client, response, response_time):
-        return {
-            "tool": "HTTPScanner",
+            "tool": "SitemapScanner",
             "target": target,
-            "status": response.status_code,
-            "final_url": str(response.url),
-            "server": response.headers.get("server"),
-            "time": response_time,
+            "status": "failed",
+            "error": "Request error"
         }
 
 
-class HeaderScanner(BaseScanner):
+
+class RobotsScanner(BaseScanner):
+    async def scan(self, target, client, response, final_time):
+        start_time = time.time()
+        try:
+            response = await client.get(target.rstrip("/") + "/robots.txt")
+            final_time = time.time() - start_time
+
+
+            return {
+                "tool": "RobotsScanner",
+                "target": target,
+                "status": response.status_code,
+                "server": response.headers.get("Server"),
+                "response_text": response.text[:300],
+                "time": final_time
+            }
+        except httpx.RequestError:
+            return {
+            "tool": "RobotsScanner",
+            "target": target,
+            "status": "failed",
+            "error": "Request error"
+        }
+
+
+
+class HTTPScanner(BaseScanner):
+
     needs_base_response = True
 
-    async def scan(self, target, client, response, response_time):
+    async def scan(self, target, client, response, final_time):
+        # start_time = time.time()
+        print(f"[HTTP] Scanning {target}")
+        # response = await client.get(target)
+        # final_time = time.time() - start_time
+
+
+        return {
+            "tool": "HTTP",
+            "target": target,
+            "status": response.status_code,
+            "server": response.headers.get("Server"),
+            "time": final_time
+        }
+
+
+
+class HeaderScanner(BaseScanner):
+
+    needs_base_response = True
+
+    async def scan(self, target, client, response, final_time):
+        # start_time = time.time()
+        print(f"[HEADER] Scanning {target}")
+        # response = await client.get(target)
+        # final_time = time.time() - start_time
+
         return {
             "tool": "HeaderScanner",
             "target": target,
             "server": response.headers.get("server"),
-            "content_type": response.headers.get("content-type"),
-            "content_length": response.headers.get("content-length"),
-            "time": response_time,
+            "content-type": response.headers.get("content-type"),
+            "time": final_time
         }
+
 
 
 class TitleScanner(BaseScanner):
     needs_base_response = True
 
-    async def scan(self, target, client, response, response_time):
-        soup = BeautifulSoup(response.text, "html.parser")
-        title = soup.title.string.strip() if soup.title and soup.title.string else None
+    async def scan(self, target, client, response, final_time):
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+
+        if soup.title:
+            title = soup.title.string
+        else:
+            title = None
+
         return {
             "tool": "TitleScanner",
             "target": target,
             "title": title,
-            "time": response_time,
+            "time": final_time
         }
+
 
 
 class CookieScanner(BaseScanner):
     needs_base_response = True
 
-    async def scan(self, target, client, response, response_time):
-        cookies = []
-        for cookie_string in response.headers.get_list("set-cookie"):
-            attributes = [part.strip() for part in cookie_string.split(";")]
-            lower_attributes = [part.lower() for part in attributes]
-            same_site = next(
-                (
-                    part.split("=", 1)[1]
-                    for part in attributes
-                    if part.lower().startswith("samesite=")
-                ),
-                None,
-            )
-            cookies.append(
-                {
-                    "name": attributes[0].split("=", 1)[0],
-                    "secure": "secure" in lower_attributes,
-                    "httponly": "httponly" in lower_attributes,
-                    "samesite": same_site,
-                }
-            )
+    async def scan(self, target, client, response, final_time):
+        cookies_headers = response.headers.get_list('set-cookie')
+
+        cookies_list = []
+        for cookie_string in cookies_headers:
+            c_lower = cookie_string.lower()
+
+            samesite_val = None
+            if "samesite=" in c_lower:
+                parts = cookie_string.split(";")
+                for part in parts:
+                    if "samesite=" in part.lower():
+                        samesite_val = part.split("=")[1].strip()
+
+            cookies_list.append({
+                "raw": cookie_string,
+                "secure": "secure" in c_lower,
+                "httponly": "httponly" in c_lower,
+                "samesite": samesite_val
+            })
 
         return {
             "tool": "CookieScanner",
             "target": target,
-            "cookies": cookies,
-            "count": len(cookies),
-            "time": response_time,
+            "cookies": cookies_list,
+            "count": len(cookies_list),
+            "final_time": final_time
         }
+
 
 
 class TechnologyScanner(BaseScanner):
     needs_base_response = True
 
-    async def scan(self, target, client, response, response_time):
-        technologies: set[str] = set()
+    async def scan(self, target, client, response, final_time):
+        technologies = set()
+
         server_header = response.headers.get("server", "").lower()
         powered_by = response.headers.get("x-powered-by", "").lower()
 
-        header_signatures = {
-            "php": "PHP",
-            "asp.net": "ASP.NET",
-            "nginx": "Nginx",
-            "apache": "Apache",
-            "iis": "Microsoft IIS",
-        }
-        for signature, label in header_signatures.items():
-            if signature in powered_by or signature in server_header:
-                technologies.add(label)
+        # Headers detection
+        if "php" in powered_by:
+            technologies.add("PHP")
 
+        if "asp.net" in powered_by:
+            technologies.add("ASP.NET")
+
+        if "nginx" in server_header:
+            technologies.add("Nginx")
+
+        if "apache" in server_header:
+            technologies.add("Apache")
+
+        if "iis" in server_header:
+            technologies.add("Microsoft IIS")
+
+        # HTML parsing
         soup = BeautifulSoup(response.text, "html.parser")
-        generator = soup.find("meta", attrs={"name": "generator"})
-        if generator and generator.get("content"):
-            technologies.add(generator["content"].strip())
 
-        scripts = " ".join(
+        generator = soup.find("meta", attrs={"name": "generator"})
+        if generator:
+            generator_content = generator.get("content")
+            if generator_content:
+                technologies.add(generator_content.strip())
+
+        # Script sources are more reliable than searching all page text
+        script_sources = [
             script.get("src", "").lower()
             for script in soup.find_all("script")
             if script.get("src")
-        )
-        html = response.text.lower()
-        page_signatures = {
-            "jquery": "jQuery",
-            "react": "React",
-            "/_next/static/": "Next.js",
-            "wp-content": "WordPress",
-            "laravel": "Laravel",
-        }
-        searchable = f"{scripts} {html}"
-        for signature, label in page_signatures.items():
-            if signature in searchable:
-                technologies.add(label)
+        ]
+
+        combined_scripts = " ".join(script_sources)
+        html_lower = response.text.lower()
+
+        if "jquery" in combined_scripts:
+            technologies.add("jQuery")
+
+        if "react" in combined_scripts:
+            technologies.add("React")
+
+        if "/_next/static/" in html_lower or "__next_data__" in html_lower:
+            technologies.add("Next.js")
+
+        if "wp-content" in html_lower or "wp-includes" in html_lower:
+            technologies.add("WordPress")
+
+        if "laravel" in html_lower:
+            technologies.add("Laravel")
 
         return {
             "tool": "TechnologyScanner",
             "target": target,
             "technologies": sorted(technologies),
             "count": len(technologies),
-            "time": response_time,
+            "time": final_time
         }
+
 
 
 class CORSScanner(BaseScanner):
-    async def scan(self, target, client, response, response_time):
-        test_origin = "https://scanner-test.example"
-        headers = {
-            "Origin": test_origin,
-            "Access-Control-Request-Method": "GET",
-        }
-        started = time.perf_counter()
-        try:
-            result = await client.options(target, headers=headers)
-            allowed_origin = result.headers.get("access-control-allow-origin")
-            credentials = result.headers.get("access-control-allow-credentials")
-            return {
-                "tool": "CORSScanner",
-                "target": target,
-                "cors_headers": {
-                    "allow_origin": allowed_origin,
-                    "allow_credentials": credentials,
-                    "allow_methods": result.headers.get("access-control-allow-methods"),
-                    "allow_headers": result.headers.get("access-control-allow-headers"),
-                },
-                "potential_credentialed_origin_reflection": (
-                    allowed_origin == test_origin
-                    and bool(credentials)
-                    and credentials.lower() == "true"
-                ),
-                "status": result.status_code,
-                "time": time.perf_counter() - started,
-            }
-        except httpx.RequestError as error:
-            return {
-                "tool": "CORSScanner",
-                "target": target,
-                "status": "failed",
-                "error": type(error).__name__,
+    needs_base_response = False
+
+    async def scan(self, target, client, response, final_time):
+        try :
+
+            test_origin = "https://evil.com"
+
+            custom_headers = {
+                "Origin": test_origin,
+                "Access-Control-Request-Method": "GET"
             }
 
+
+            start_timee = time.time()
+            response = await client.options(target, headers=custom_headers)
+            final_time = time.time() - start_timee
+
+            origin = response.headers.get("access-control-allow-origin")
+            creds = response.headers.get("access-control-allow-credentials")
+
+            potential_issue = False
+            # الوصول المباشر للـ CORS headers
+            cors_headers = {
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Credentials": creds,
+                "Access-Control-Allow-Methods": response.headers.get("access-control-allow-methods"),
+                "Access-Control-Allow-Headers": response.headers.get("access-control-allow-headers")
+            }
+
+            if origin == test_origin and creds and creds.lower() == "true":
+                potential_issue = True
+
+            return {
+                "tool": "CORSScanner",
+                "target": target,
+                "CORS_Headers": cors_headers,
+                "potential_issue": potential_issue,
+                "time": final_time,
+                "method": response.request.method
+            }
+        except httpx.RequestError:
+            return {
+                "tool": "CORSScanner",
+                "target": target,
+                "problem": None
+            }
+
+
+
+
+
+
+
+
+# =========================
+# Tool Manager
+# =========================
 
 class ToolManager:
-    def __init__(self, tools: list[BaseScanner]):
+
+    def __init__(self, tools):
         self.tools = tools
 
-    async def run_target(
-        self, target: str, client: httpx.AsyncClient
-    ) -> list[dict[str, Any]]:
-        response = None
-        response_time = None
 
-        if any(tool.needs_base_response for tool in self.tools):
-            started = time.perf_counter()
-            try:
-                response = await client.get(target)
-                response_time = time.perf_counter() - started
-            except httpx.RequestError as error:
-                return [
-                    {
-                        "tool": "BaseRequest",
-                        "target": target,
-                        "status": "failed",
-                        "error": type(error).__name__,
-                    }
-                ]
+    async def run_target(self, target, client):
 
-        tasks = [
-            tool.scan(target, client, response, response_time)
-            for tool in self.tools
-            if response is not None or not tool.needs_base_response
-        ]
-        return await asyncio.gather(*tasks)
 
+        try:
+            tasks1 = []     # Httpscanner , headerscanner
+            tasks2 = []     # sitemapscanner , robotsscanner
+
+            start_time = time.time()
+            response = await client.get(target)
+            final_time = time.time() - start_time
+
+            for tool in self.tools:                 # هون راح نعدل على هاي اللوب
+                status = tool.needs_base_response
+
+                if status == True:
+                    tasks1.append(tool.scan(target,client, response, final_time))
+
+                elif status == False:
+                    tasks2.append(tool.scan(target, client, response=None, final_time=None))
+
+
+            results1 = await asyncio.gather(*tasks1)
+            results2 = await asyncio.gather(*tasks2)
+
+
+
+            return results1 + results2
+
+
+        except httpx.RequestError:
+
+            return {
+                "target": target,
+                "error": "Connection Failed"
+            }
+
+
+#################################################################################################
+# Recon Agent
+# =========================
 
 class ReconAgent:
-    def __init__(self, tools: list[BaseScanner], timeout: float):
+
+
+    def __init__(self, tools):
         self.manager = ToolManager(tools)
-        self.timeout = timeout
 
-    async def scan_target(self, target: str) -> list[dict[str, Any]]:
-        async with httpx.AsyncClient(
-            timeout=self.timeout,
-            follow_redirects=True,
-            headers={"User-Agent": "Async-Web-Recon-Agent/0.1 (authorized testing only)"},
-        ) as client:
-            return await self.manager.run_target(target, client)
+    async def scan_target(self, target):
 
-    async def run(self, targets: list[str]) -> dict[str, list[dict[str, Any]]]:
-        results = await asyncio.gather(*(self.scan_target(target) for target in targets))
+        # Session خاصة بهذا الهدف
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
+
+            results = await self.manager.run_target(target,client)
+            return results
+
+
+    async def run(self, targets):
+        tasks = []
+
+        for target in targets:
+
+            tasks.append(self.scan_target(target))
+
+        # كل Targets تعمل مع بعض
+        results = await asyncio.gather(*tasks)
+
         return dict(zip(targets, results))
 
 
-def valid_target(value: str) -> str:
-    parsed = urlparse(value)
-    if parsed.scheme not in {"http", "https"} or not parsed.netloc:
-        raise argparse.ArgumentTypeError(
-            "Targets must be complete HTTP(S) URLs, for example http://127.0.0.1:8000"
-        )
-    return value.rstrip("/")
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(
-        description="Run modular asynchronous web checks against authorized targets."
-    )
-    parser.add_argument("targets", nargs="+", type=valid_target)
-    parser.add_argument("--timeout", type=float, default=10.0)
-    parser.add_argument("--output", help="Optional path for the JSON report")
-    return parser.parse_args()
+
+###################################################################################
+# Main
+# =========================
+
+async def main():
+    plugins = [
+        plugin_class()
+        for plugin_class in BaseScanner.plugins
+    ]
 
 
-async def main() -> None:
-    args = parse_args()
-    tools = [plugin() for plugin in BaseScanner.plugins]
-    agent = ReconAgent(tools, timeout=args.timeout)
+    agent = ReconAgent(plugins)
 
-    started = time.perf_counter()
-    results = await agent.run(args.targets)
-    report = {
-        "project": "Async Web Recon Agent",
-        "status": "work-in-progress",
-        "duration_seconds": round(time.perf_counter() - started, 3),
-        "results": results,
-    }
-    output = json.dumps(report, indent=2, ensure_ascii=False)
-    print(output)
+    results = await agent.run(targets)
 
-    if args.output:
-        with open(args.output, "w", encoding="utf-8") as report_file:
-            report_file.write(output + "\n")
+    for target, data in results.items():
+
+        print("=" * 50)
+
+        print(target)
+
+        for result in data:
+            print(result)
 
 
-if __name__ == "__main__":
-    asyncio.run(main())
+    print("=" * 50)
+
+    print(f"Finished in {time.time() - start_time:.2f} seconds")
+
+
+asyncio.run(main())
+
+
+
+
+
