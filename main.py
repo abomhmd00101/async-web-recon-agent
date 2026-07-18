@@ -7,8 +7,8 @@ from core.recon_agent import ReconAgent
 
 
 targets = [
-    "https://google.com",
-    "https://github.com",
+    "https://exaple1.com",
+    "https://exaple2.com",
 ]
 
 
