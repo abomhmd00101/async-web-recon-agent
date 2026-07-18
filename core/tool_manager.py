@@ -40,7 +40,7 @@ class ToolManager:
             return results1 + results2
 
         except httpx.RequestError:
-            return {
+            return [{
                 "target": target,
                 "error": "Connection Failed",
-            }
+            }]
