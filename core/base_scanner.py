@@ -1,11 +1,11 @@
 class BaseScanner:
-    """Base plugin contract shared by all scanner implementations."""
+    """Base plugin contract shared by every scanner implementation."""
 
     plugins = []
 
     def __init_subclass__(cls, **kwargs):
         super().__init_subclass__(**kwargs)
-        if not hasattr(cls, "needs_base_response"):
+        if not hasattr(cls, 'needs_base_response'):
             cls.needs_base_response = False
 
         BaseScanner.plugins.append(cls)

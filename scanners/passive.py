@@ -1,8 +1,9 @@
-from urllib.parse import urljoin, urlparse
-
 from bs4 import BeautifulSoup
-
+from urllib.parse import urlparse, urljoin
 from core.base_scanner import BaseScanner
+
+
+
 
 
 class SecurityHeadersScanner(BaseScanner):
@@ -12,20 +13,20 @@ class SecurityHeadersScanner(BaseScanner):
         missing = []
         present = []
 
-        headers_to_check = [
-            "Content-Security-Policy",
-            "Strict-Transport-Security",
-            "X-Frame-Options",
-            "X-Content-Type-Options",
-            "Referrer-Policy",
-            "Permissions-Policy",
-        ]
+        headers_to_check = ["Content-Security-Policy",
+        "Strict-Transport-Security",
+        "X-Frame-Options",
+        "X-Content-Type-Options",
+        "Referrer-Policy",
+        "Permissions-Policy"]
 
         for header in headers_to_check:
             if header in response.headers:
                 present.append(header)
             else:
                 missing.append(header)
+
+
 
         score = f"{len(present)} / {len(headers_to_check)}"
 
@@ -35,45 +36,57 @@ class SecurityHeadersScanner(BaseScanner):
             "present": present,
             "missing": missing,
             "score": score,
-            "final_time": final_time,
+            "final_time": final_time
         }
 
 
 class HTTPScanner(BaseScanner):
+
     needs_base_response = True
 
     async def scan(self, target, client, response, final_time):
+        # start_time = time.time()
         print(f"[HTTP] Scanning {target}")
+        # response = await client.get(target)
+        # final_time = time.time() - start_time
+
 
         return {
             "tool": "HTTP",
             "target": target,
             "status": response.status_code,
             "server": response.headers.get("Server"),
-            "time": final_time,
+            "time": final_time
         }
 
 
 class HeaderScanner(BaseScanner):
+
     needs_base_response = True
 
     async def scan(self, target, client, response, final_time):
+        # start_time = time.time()
         print(f"[HEADER] Scanning {target}")
+        # response = await client.get(target)
+        # final_time = time.time() - start_time
 
         return {
             "tool": "HeaderScanner",
             "target": target,
             "server": response.headers.get("server"),
             "content-type": response.headers.get("content-type"),
-            "time": final_time,
+            "time": final_time
         }
+
 
 
 class TitleScanner(BaseScanner):
     needs_base_response = True
 
     async def scan(self, target, client, response, final_time):
-        soup = BeautifulSoup(response.text, "html.parser")
+
+        soup = BeautifulSoup(response.text, 'html.parser')
+
 
         if soup.title:
             title = soup.title.string
@@ -84,15 +97,16 @@ class TitleScanner(BaseScanner):
             "tool": "TitleScanner",
             "target": target,
             "title": title,
-            "time": final_time,
+            "time": final_time
         }
+
 
 
 class CookieScanner(BaseScanner):
     needs_base_response = True
 
     async def scan(self, target, client, response, final_time):
-        cookies_headers = response.headers.get_list("set-cookie")
+        cookies_headers = response.headers.get_list('set-cookie')
 
         cookies_list = []
         for cookie_string in cookies_headers:
@@ -105,22 +119,21 @@ class CookieScanner(BaseScanner):
                     if "samesite=" in part.lower():
                         samesite_val = part.split("=")[1].strip()
 
-            cookies_list.append(
-                {
-                    "raw": cookie_string,
-                    "secure": "secure" in c_lower,
-                    "httponly": "httponly" in c_lower,
-                    "samesite": samesite_val,
-                }
-            )
+            cookies_list.append({
+                "raw": cookie_string,
+                "secure": "secure" in c_lower,
+                "httponly": "httponly" in c_lower,
+                "samesite": samesite_val
+            })
 
         return {
             "tool": "CookieScanner",
             "target": target,
             "cookies": cookies_list,
             "count": len(cookies_list),
-            "final_time": final_time,
+            "final_time": final_time
         }
+
 
 
 class TechnologyScanner(BaseScanner):
@@ -132,6 +145,7 @@ class TechnologyScanner(BaseScanner):
         server_header = response.headers.get("server", "").lower()
         powered_by = response.headers.get("x-powered-by", "").lower()
 
+        # Headers detection
         if "php" in powered_by:
             technologies.add("PHP")
 
@@ -147,6 +161,7 @@ class TechnologyScanner(BaseScanner):
         if "iis" in server_header:
             technologies.add("Microsoft IIS")
 
+        # HTML parsing
         soup = BeautifulSoup(response.text, "html.parser")
 
         generator = soup.find("meta", attrs={"name": "generator"})
@@ -155,6 +170,7 @@ class TechnologyScanner(BaseScanner):
             if generator_content:
                 technologies.add(generator_content.strip())
 
+        # Script sources are more reliable than searching all page text
         script_sources = [
             script.get("src", "").lower()
             for script in soup.find_all("script")
@@ -184,24 +200,24 @@ class TechnologyScanner(BaseScanner):
             "target": target,
             "technologies": sorted(technologies),
             "count": len(technologies),
-            "time": final_time,
+            "time": final_time
         }
 
 
 class RedirectScanner(BaseScanner):
     needs_base_response = True
 
+
     async def scan(self, target, client, response, final_time):
         final_results = []
 
         for old_response in response.history:
-            final_results.append(
-                {
-                    "status": old_response.status_code,
-                    "url": str(old_response.url),
-                    "location": old_response.headers.get("location"),
-                }
-            )
+            final_results.append({
+                "status": old_response.status_code,
+                "url": str(old_response.url),
+                "location": old_response.headers.get("location")
+            })
+
 
         return {
             "tool": "RedirectScanner",
@@ -211,7 +227,7 @@ class RedirectScanner(BaseScanner):
             "redirect_chain": final_results,
             "final_url": str(response.url),
             "final_status": response.status_code,
-            "time": final_time,
+            "time": final_time
         }
 
 
@@ -219,15 +235,18 @@ class LinkScanner(BaseScanner):
     needs_base_response = True
 
     async def scan(self, target, client, response, final_time):
-        base_domain = urlparse(target).netloc
-        soup = BeautifulSoup(response.text, "html.parser")
 
-        resolved_relative_links = set()
-        internal_links = set()
-        external_links = set()
 
-        for a_tag in soup.find_all("a", href=True):
-            raw_link = a_tag.get("href")
+        base_domain = urlparse(target).netloc  # to get the main domain  e.g --->  google.com
+        soup = BeautifulSoup(response.text, 'html.parser')
+
+        resolved_relative_links = set()  # no name for the domain
+        internal_links = set()  # The domain matches the target's base domain.
+        external_links = set()  # is not as same as the base_domain
+
+        for a_tag in soup.find_all('a', href=True):
+
+            raw_link = a_tag.get('href')  # Preserve the href exactly as written in the HTML.
 
             if not raw_link:
                 continue
@@ -242,14 +261,16 @@ class LinkScanner(BaseScanner):
             if not parsed_link.netloc:
                 full_url = urljoin(target, raw_link)
                 resolved_relative_links.add(full_url)
+
             elif parsed_link.netloc == base_domain:
                 internal_links.add(raw_link)
+
             else:
                 external_links.add(raw_link)
 
-        internal_count = len(internal_links)
-        external_count = len(external_links)
-        relative_count = len(resolved_relative_links)
+        x = len(internal_links)
+        z = len(external_links)
+        y = len(resolved_relative_links)
 
         return {
             "tool": "LinkScanner",
@@ -257,11 +278,11 @@ class LinkScanner(BaseScanner):
             "internal_links": sorted(internal_links),
             "external_links": sorted(external_links),
             "resolved_relative_links": sorted(resolved_relative_links),
-            "internal_count": internal_count,
-            "external_count": external_count,
-            "relative_count": relative_count,
-            "total_count": internal_count + relative_count + external_count,
-            "time": final_time,
+            "internal_count": x,
+            "external_count": z,
+            "relative_count": y,
+            "total_count": x+y+z,
+            "time": final_time
         }
 
 
@@ -294,13 +315,11 @@ class FormScanner(BaseScanner):
                 if input_type == "password":
                     has_password = True
 
-                form_inputs.append(
-                    {
-                        "name": name,
-                        "type": input_type,
-                        "required": is_required,
-                    }
-                )
+                form_inputs.append({
+                    "name": name,
+                    "type": input_type,
+                    "required": is_required
+                })
 
             if method == "GET":
                 get_forms_count += 1
@@ -311,14 +330,12 @@ class FormScanner(BaseScanner):
             if has_password:
                 password_forms_count += 1
 
-            extracted_forms.append(
-                {
-                    "method": method,
-                    "action": action,
-                    "resolved_action": resolved_action,
-                    "inputs": form_inputs,
-                }
-            )
+            extracted_forms.append({
+                "method": method,
+                "action": action,
+                "resolved_action": resolved_action,
+                "inputs": form_inputs
+            })
 
         return {
             "tool": "FormScanner",
@@ -328,5 +345,5 @@ class FormScanner(BaseScanner):
             "get_forms": get_forms_count,
             "post_forms": post_forms_count,
             "password_forms": password_forms_count,
-            "time": final_time,
+            "time": final_time
         }
