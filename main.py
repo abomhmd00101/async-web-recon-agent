@@ -9,7 +9,7 @@ from core.recon_agent import ReconAgent
 from reporting.json_reporter import JSONReporter
 
 
-targets = ["https://officemaxpal.com"]
+targets = ["https://example.com"]
 
 
 async def main():
