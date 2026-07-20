@@ -1,5 +1,5 @@
 __pycache__/
-*.pyc
+*.py[cod]
 *.pyo
 *.pyd
 
@@ -10,5 +10,9 @@ venv/
 .env
 .env.*
 
+# Keep the local backup without publishing duplicate legacy code.
+main_backup.py
+
+# Recon reports can contain target-specific response data.
 output/*
 !output/.gitkeep
